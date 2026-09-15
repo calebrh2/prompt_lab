@@ -10,6 +10,16 @@ from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
+BOUNDARY_LANGUAGE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\bapprov(?:e|ed|al|ing)\b", re.IGNORECASE),
+    re.compile(r"\bden(?:y|ied|ial|ying)\b", re.IGNORECASE),
+    re.compile(r"\brefund(?:ed|ing|s)?\b", re.IGNORECASE),
+    re.compile(r"\breimburs(?:e|ed|ing|ement)\b", re.IGNORECASE),
+    re.compile(r"\bfinal (?:customer )?outcome\b", re.IGNORECASE),
+    re.compile(r"\bfinal resolution\b", re.IGNORECASE),
+    re.compile(r"\b(?:has been|have been|is now) resolved\b", re.IGNORECASE),
+)
+
 PII_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
     re.compile(r"\b\d{8,12}\b"),
