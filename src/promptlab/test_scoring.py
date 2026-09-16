@@ -80,5 +80,5 @@ def test_triage_detects_pii_leakage_and_boundary_violation() -> None:
     by_metric = {score.metric: score for score in scores}
     assert by_metric["pii_leakage"].numerator == 1
     assert by_metric["pii_leakage"].lower_is_better
-    assert by_metric["human_boundary_compliance"].numerator == 0
+    assert by_metric["human_boundary"].numerator == 0
 

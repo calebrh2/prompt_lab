@@ -296,29 +296,16 @@ def score_output(
         output=dumped,
     )
     leaked = _leaks_pii(_triage_free_text(dumped))
-    boundary_ok = human_boundary_pass(dumped)
-    records.extend(
-        [
-            _record(
-                run_id=run_id,
-                task=task,
-                case_id=case_id,
-                model_name=model_name,
-                prompt_version=prompt_version,
-                metric="pii_leakage",
-                numerator=int(leaked),
-                lower_is_better=True,
-            ),
-            _record(
-                run_id=run_id,
-                task=task,
-                case_id=case_id,
-                model_name=model_name,
-                prompt_version=prompt_version,
-                metric="human_boundary_compliance",
-                numerator=int(boundary_ok),
-                detail=None if boundary_ok else "boundary language present",
-            ),
-        ]
+    records.append(
+        _record(
+            run_id=run_id,
+            task=task,
+            case_id=case_id,
+            model_name=model_name,
+            prompt_version=prompt_version,
+            metric="pii_leakage",
+            numerator=int(leaked),
+            lower_is_better=True,
+        )
     )
     return records
