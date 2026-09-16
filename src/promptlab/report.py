@@ -1,8 +1,7 @@
 """Reporting for the Week 2 model-comparison lab.
 
-The reporting layer consumes the existing UsageRecord, OutputRecord, and
-ScoreRecord objects.  It does not rescore model output and it does not call an
-LLM.
+The reporting layer consumes recorded usage, call, output, and score objects.
+It does not rescore model output and it does not call an LLM.
 """
 
 from __future__ import annotations
@@ -13,8 +12,11 @@ from pathlib import Path
 from statistics import median
 from typing import Any
 
-from promptlab.records import OutputRecord, ScoreRecord, UsageRecord
+from promptlab.records import OutputRecord, ScoreRecord, UsageRecord, load_records
+from promptlab.schemas import TaskName
+from promptlab.usage import CallRecord, round_trip_latencies
 
+_TASK_ORDER: tuple[TaskName, ...] = ("summarization", "extraction", "triage")
 
 _ConfigKey = tuple[str, str, str]  # task, model_name, prompt_version
 
@@ -94,11 +96,7 @@ def _usage_summary(
         int(getattr(row, "completion_tokens", 0) or 0) for row in records
     )
 
-    latencies = [
-        float(row.latency_ms)
-        for row in records
-        if getattr(row, "latency_ms", None) is not None
-    ]
+    latencies = round_trip_latencies(records)
 
     if latencies:
         median_latency = f"{_fmt_number(float(median(latencies)))} ms"
@@ -352,4 +350,238 @@ def write_reports(
         outputs=run_outputs,
         scores=run_scores,
         decision_path=Path(decision_path),
+    )
+
+
+def _prompt_label(task: TaskName, model_name: str, prompt_id: str, prompt_version: str) -> str:
+    from promptlab.run import assign_prompt
+
+    assignment = assign_prompt(task, model_name)
+    base = f"{prompt_id}.{prompt_version}"
+    return f"{base} transfer" if assignment.transfer else base
+
+
+def _model_name(model_id: str, scores: Sequence[ScoreRecord]) -> str:
+    for row in scores:
+        if row.model_id == model_id:
+            return row.model_name
+    from promptlab.config import Settings
+
+    for name, config in Settings.from_env().models.items():
+        if config.model_id == model_id:
+            return name
+    return model_id
+
+
+def _nd(metrics: dict[str, tuple[int, int, bool | None]], name: str) -> str:
+    if name not in metrics:
+        return "—"
+    numerator, denominator, _direction = metrics[name]
+    return f"{numerator}/{denominator}"
+
+
+def _missed_or_invented(
+    metrics: dict[str, tuple[int, int, bool | None]], name: str
+) -> str:
+    if name not in metrics:
+        return "—"
+    numerator, denominator, _direction = metrics[name]
+    return f"{denominator - numerator}/{denominator}"
+
+
+def _case_quality_metric(task: TaskName) -> str:
+    return "queue_accuracy" if task == "triage" else "required_evidence_recall"
+
+
+def _attempt_counts(calls: Sequence[CallRecord]) -> tuple[str, str, int]:
+    case_ids = {row.case_id for row in calls}
+    n_cases = len(case_ids)
+    primary_by_case: dict[str, int] = defaultdict(int)
+    retries = 0
+    for row in calls:
+        if row.attempt > 1:
+            retries += 1
+        else:
+            primary_by_case[row.case_id] += 1
+    repaired = sum(1 for case_id in case_ids if primary_by_case.get(case_id, 0) > 1)
+    repairs = f"{repaired}/{n_cases}" if n_cases else "0/0"
+    return repairs, str(retries), n_cases
+
+
+def _tokens_per_case(calls: Sequence[CallRecord], n_cases: int) -> tuple[str, str]:
+    if n_cases == 0:
+        return "—", "—"
+    input_tokens = sum(row.input_tokens for row in calls) / n_cases
+    output_tokens = sum(row.output_tokens for row in calls) / n_cases
+    return _fmt_number(input_tokens), _fmt_number(output_tokens)
+
+
+def _latency_cells(calls: Sequence[CallRecord]) -> tuple[str, str, str]:
+    latencies = round_trip_latencies(calls)
+    if not latencies:
+        return "—", "—", "0"
+    return (
+        f"{_fmt_number(float(median(latencies)))} ms",
+        f"{_fmt_number(float(max(latencies)))} ms",
+        str(len(latencies)),
+    )
+
+
+def _cost_cell(calls: Sequence[CallRecord]) -> str:
+    total = sum(float(row.cost_usd) for row in calls)
+    if total == 0.0:
+        return "$0.00"
+    return f"${total:.2f}"
+
+
+def _row_ops(calls: Sequence[CallRecord], scores: Sequence[ScoreRecord], task: TaskName) -> str:
+    repairs, retries, n_cases = _attempt_counts(calls)
+    input_tokens, output_tokens = _tokens_per_case(calls, n_cases)
+    median_latency, max_latency, n = _latency_cells(calls)
+    scored = {
+        row.case_id
+        for row in scores
+        if row.metric == _case_quality_metric(task)
+    }
+    failures = f"{max(n_cases - len(scored), 0)}/{n_cases}" if n_cases else "0/0"
+    return (
+        f"{input_tokens} | {output_tokens} | {median_latency} | {max_latency} | "
+        f"{n} | {repairs} | {retries} | {failures} | {_cost_cell(calls)}"
+    )
+
+
+def _evidence_quality(scores: Sequence[ScoreRecord]) -> str:
+    metrics = _aggregate_scores(scores)
+    return (
+        f"{_nd(metrics, 'required_evidence_recall')} | "
+        f"{_missed_or_invented(metrics, 'required_evidence_recall')} | "
+        f"{_missed_or_invented(metrics, 'unsupported_field_avoidance')} | "
+        f"{_nd(metrics, 'citation_correctness')} | "
+        f"{_nd(metrics, 'pii_leakage')} | "
+        f"{_nd(metrics, 'version_selection_accuracy')}"
+    )
+
+
+def _triage_quality(scores: Sequence[ScoreRecord]) -> str:
+    metrics = _aggregate_scores(scores)
+    return (
+        f"{_nd(metrics, 'queue_accuracy')} | "
+        f"{_nd(metrics, 'escalation_accuracy')} | "
+        f"{_nd(metrics, 'missed_escalation')} | "
+        f"{_nd(metrics, 'unnecessary_escalation')} | "
+        f"{_nd(metrics, 'human_boundary')} | "
+        f"{_nd(metrics, 'pii_leakage')}"
+    )
+
+
+def write_comparison(
+    *,
+    calls: Sequence[CallRecord],
+    scores: Sequence[ScoreRecord],
+    report_path: Path,
+) -> None:
+    """Write one quality/tokens/latency/repairs table per task."""
+
+    run_ids = sorted({row.run_id for row in calls} | {row.run_id for row in scores})
+    run_id = run_ids[0] if len(run_ids) == 1 else ", ".join(run_ids) if run_ids else "unknown"
+    scorer_versions = sorted({row.scorer_version for row in scores})
+    scorer = scorer_versions[0] if scorer_versions else "unscored"
+    temperatures = sorted({float(row.temperature) for row in calls})
+    if not temperatures:
+        temperature = "—"
+    elif len(temperatures) == 1:
+        temperature = f"{temperatures[0]:.1f}"
+    else:
+        temperature = ", ".join(f"{value:.1f}" for value in temperatures)
+
+    lines: list[str] = [
+        "# Model comparison: summarization, extraction, triage",
+        "",
+        f"Run `{run_id}`. Scorer version `{scorer}`. Temperature `{temperature}`.",
+        "Every row names the prompt version it ran.",
+        "",
+        "Local Ollama `cost_usd` is `$0.00`. No cloud provider price is used.",
+        "Token counts and latency include first attempts, transport retries, and schema repairs.",
+        "Latency is median and maximum over `n` case round-trips.",
+        "",
+    ]
+
+    grouped_calls: dict[tuple[TaskName, str], list[CallRecord]] = defaultdict(list)
+    for call in calls:
+        grouped_calls[(call.task, call.model_id)].append(call)
+
+    grouped_scores: dict[tuple[TaskName, str], list[ScoreRecord]] = defaultdict(list)
+    for score in scores:
+        grouped_scores[(score.task, score.model_id)].append(score)
+
+    evidence_header = (
+        "| Model | Prompt | Required evidence | Missed | Invented/unsupported | "
+        "Citations | PII leakage | Version current | Input tokens/case | "
+        "Output tokens/case | Median latency | Max latency | n | Repairs | "
+        "Retries | Failures | Cost |"
+    )
+    evidence_divider = (
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
+        " ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
+    )
+    triage_header = (
+        "| Model | Prompt | Routing accuracy | Escalation accuracy | "
+        "Missed escalations | Unnecessary escalations | Human-boundary | "
+        "PII leakage | Input tokens/case | Output tokens/case | Median latency | "
+        "Max latency | n | Repairs | Retries | Failures | Cost |"
+    )
+    triage_divider = (
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
+        " ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
+    )
+
+    for task in _TASK_ORDER:
+        model_ids = sorted(
+            {model_id for grouped_task, model_id in grouped_calls if grouped_task == task},
+            key=lambda model_id: (_model_name(model_id, scores) != "mistral", model_id),
+        )
+        if not model_ids:
+            continue
+        header = triage_header if task == "triage" else evidence_header
+        divider = triage_divider if task == "triage" else evidence_divider
+        lines.extend([f"## {task.title()}", "", header, divider])
+        for model_id in model_ids:
+            task_calls = grouped_calls[(task, model_id)]
+            task_scores = grouped_scores.get((task, model_id), [])
+            model_name = _model_name(model_id, task_scores or scores)
+            prompt_id = task_calls[0].prompt_id
+            prompt_version = task_calls[0].prompt_version
+            label = _prompt_label(task, model_name, prompt_id, prompt_version)
+            quality = (
+                _triage_quality(task_scores)
+                if task == "triage"
+                else _evidence_quality(task_scores)
+            )
+            ops = _row_ops(task_calls, task_scores, task)
+            lines.append(
+                f"| {model_name.title()} | {label} | {quality} | {ops} |"
+            )
+        lines.append("")
+
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def write_comparison_from_evidence(
+    *,
+    run_path: Path,
+    scores_path: Path,
+    report_path: Path,
+) -> None:
+    """Generate reports/comparison.md from Day 5 call and score JSONL files."""
+
+    calls: list[CallRecord] = []
+    if run_path.exists():
+        for line in run_path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                calls.append(CallRecord.model_validate_json(line))
+    write_comparison(
+        calls=calls,
+        scores=load_records(scores_path, ScoreRecord),
+        report_path=report_path,
     )

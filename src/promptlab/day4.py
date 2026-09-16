@@ -146,6 +146,8 @@ def main() -> str:
                 task=TASK,
                 case_id=case["id"],
                 model_name=MODEL_NAME,
+                model_id=model.model_id,
+                prompt_id=PROMPT_ID,
                 prompt_version=prompt_version,
                 gold=gold[case["id"]],
                 output=record.output,

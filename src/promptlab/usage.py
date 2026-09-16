@@ -5,6 +5,7 @@ Implement this module by following assignments/W02_Day1_Assignment_LOCAL.md.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -38,6 +39,27 @@ class CallRecord(BaseModel):
     stop_reason: str | None
     error_type: str | None
     response_text: str | None
+
+
+def round_trip_latencies(records: Sequence[object]) -> list[float]:
+    """One latency per case: first attempt plus every repair and retry.
+
+    Stored records stay one HTTP call each. Median, maximum, and observation
+    count must use this list so a repaired case is not treated as extra cases.
+    """
+    totals: dict[tuple[str, str, str], float] = {}
+    order: list[tuple[str, str, str]] = []
+    for record in records:
+        latency = getattr(record, "latency_ms", None)
+        if latency is None:
+            continue
+        model = str(getattr(record, "model_name", None) or getattr(record, "model_id", ""))
+        key = (str(getattr(record, "task", "")), model, str(getattr(record, "case_id", "")))
+        if key not in totals:
+            order.append(key)
+            totals[key] = 0.0
+        totals[key] += float(latency)
+    return [totals[key] for key in order]
 
 
 def compute_cost(model_id: str, input_tokens: int, output_tokens: int) -> float:

@@ -221,6 +221,26 @@ def test_permanent_failure_is_not_retried(
     assert result.records[0].error_type == PermanentProviderError.__name__
 
 
+def test_qwen_requests_disable_thinking(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    bodies: list[dict[str, object]] = []
+
+    def capture_post(*args: object, **kwargs: object) -> FakeResponse:
+        payload = kwargs["json"]
+        assert isinstance(payload, dict)
+        bodies.append(payload)
+        return FakeResponse()
+
+    monkeypatch.setattr(httpx, "post", capture_post)
+    OllamaAdapter(model_id=_model_id("qwen")).complete(_request(), "qwen-think-off")
+    OllamaAdapter(model_id=_model_id("mistral")).complete(_request(), "mistral-default")
+
+    assert bodies[0]["think"] is False
+    assert "think" not in bodies[1]
+
+
 def test_truncation_is_recorded_and_not_retried(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
