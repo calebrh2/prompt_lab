@@ -28,6 +28,8 @@ Latency is median and maximum over `n` case round-trips.
 | Mistral | triage.v1 | 7/12 | 12/12 | 0/12 | 0/12 | 12/12 | 0/12 | 540.8 | 145.5 | 5493.5 ms | 9580 ms | 12 | 0/12 | 0 | 0/12 | $0.00 |
 | Qwen | triage.v1 transfer | 10/12 | 8/12 | 0/12 | 4/12 | 12/12 | 0/12 | 482.6 | 106.4 | 4652 ms | 8628 ms | 12 | 0/12 | 0 | 0/12 | $0.00 |
 
+The Day 4 triage human-boundary metric was re-verified under both Mistral and Qwen.
+
 ## Limits
 
 There are only 12 cases per task. Results are directional, not production-scale estimates. A one-case or two-case difference (for example 11/12 versus 10/12) is not a universal model ranking.

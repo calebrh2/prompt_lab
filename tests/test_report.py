@@ -137,6 +137,10 @@ def test_day5_comparison_tables_use_counts_tokens_and_local_cost(tmp_path: Path)
     assert "Missed escalations" in text
     assert "Unnecessary escalations" in text
     assert "Human-boundary" in text
+    assert (
+        "The Day 4 triage human-boundary metric was re-verified under both Mistral and Qwen."
+        in text
+    )
     assert "PII leakage" in text
     assert "Input tokens/case" in text
     assert "Output tokens/case" in text
@@ -173,6 +177,10 @@ def test_committed_comparison_recommendation_names_model_prompt_and_reopen() -> 
     assert text.index("## Limits") < text.index("## Recommendation")
     assert "Summarization on Mistral, running `summarize.v2`" in text
     assert "Extraction on Mistral, running `extract.v4`" in text
+    assert (
+        "The Day 4 triage human-boundary metric was re-verified under both Mistral and Qwen."
+        in text
+    )
     assert "Triage on Mistral, running `triage.v1`" in text
     assert "Reopen if Qwen is measured with an adapted summarization prompt" in text
     assert "Reopen if Qwen is measured with an adapted extraction prompt" in text

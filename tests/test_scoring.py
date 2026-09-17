@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import json
+from collections import defaultdict
 from datetime import date
+from pathlib import Path
 
 import pytest
 
+from promptlab.config import Settings
 from promptlab.corpus import GoldLabel
 from promptlab.records import ScoreRecord
 from promptlab.rules import VersionCandidate, select_current_version
@@ -16,6 +20,7 @@ from promptlab.scoring import (
     score_version_selection,
     source_sections,
 )
+from promptlab.usage import CallRecord
 
 
 def _gold(*, queue: str, escalation: bool) -> dict[str, object]:
@@ -133,6 +138,32 @@ def test_human_boundary_is_deterministic_and_uses_existing_score_record() -> Non
 def test_human_boundary_passes_neutral_draft() -> None:
     output = _output(queue="card_dispute", escalation=False)
     assert human_boundary_pass(output) is True
+
+
+def test_committed_day5_human_boundary_passes_under_both_models() -> None:
+    latest: dict[tuple[str, str], CallRecord] = {}
+    for line in Path("docs/day5-run.jsonl").read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        record = CallRecord.model_validate_json(line)
+        if record.task != "triage":
+            continue
+        key = (record.model_id, record.case_id)
+        previous = latest.get(key)
+        if previous is None or record.attempt >= previous.attempt:
+            latest[key] = record
+
+    by_model: dict[str, list[str]] = defaultdict(list)
+    for (model_id, case_id), record in latest.items():
+        payload = json.loads(record.response_text or "")
+        assert "draft_reply" in payload
+        assert human_boundary_pass(payload) is True
+        by_model[model_id].append(case_id)
+
+    expected_ids = {config.model_id for config in Settings.from_env().models.values()}
+    assert set(by_model) == expected_ids
+    for model_id, cases in by_model.items():
+        assert len(set(cases)) == 12, model_id
 
 
 def test_scoring_module_does_not_define_a_second_score_record() -> None:

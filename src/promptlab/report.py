@@ -59,11 +59,7 @@ def _aggregate_scores(
             for value in (getattr(row, "lower_is_better", None) for row in rows)
             if value is not None
         }
-        lower_is_better: bool | None
-        if len(directions) == 1:
-            lower_is_better = next(iter(directions))
-        else:
-            lower_is_better = None
+        lower_is_better = next(iter(directions)) if len(directions) == 1 else None
 
         result[metric] = (numerator, denominator, lower_is_better)
 
@@ -107,12 +103,6 @@ def _usage_summary(
 
     # A semantic repair is a separate model request and should not also be
     # reported as a transport retry merely because it has an attempt number.
-    repair_attempts = sum(
-        1
-        for row in records
-        if str(getattr(row, "kind", "")).lower() == "repair"
-    )
-
     retry_attempts = sum(
         1
         for row in records
@@ -371,6 +361,25 @@ def _model_name(model_id: str, scores: Sequence[ScoreRecord]) -> str:
         if config.model_id == model_id:
             return name
     return model_id
+
+
+def _human_boundary_tested_phrase(scores: Sequence[ScoreRecord]) -> str | None:
+    """Name the models that have a committed triage human-boundary score."""
+
+    names = sorted(
+        {
+            row.model_name.title()
+            for row in scores
+            if row.task == "triage" and row.metric == "human_boundary"
+        }
+    )
+    if not names:
+        return None
+    if names == ["Mistral", "Qwen"]:
+        return "both Mistral and Qwen"
+    if len(names) == 1:
+        return names[0]
+    return " and ".join(names)
 
 
 def _nd(metrics: dict[str, tuple[int, int, bool | None]], name: str) -> str:
@@ -685,6 +694,16 @@ def write_comparison(
                 f"| {model_name.title()} | {label} | {quality} | {ops} |"
             )
         lines.append("")
+        if task == "triage":
+            tested = _human_boundary_tested_phrase(scores)
+            if tested is not None:
+                lines.extend(
+                    [
+                        "The Day 4 triage human-boundary metric was re-verified under "
+                        f"{tested}.",
+                        "",
+                    ]
+                )
 
     lines.extend(_limits_section(transfer_rows, untested, extra_notes))
 
