@@ -13,7 +13,7 @@ Models run on the host through Ollama (`mistral:7b` or `qwen3:8b`). Python runs 
 | 3 | Schema-validated JSON plus a bounded repair loop | summarization + extraction | `docs/day3-run.jsonl`, `docs/day3-notes.md` |
 | 4 | Prompt registry, two triage prompts, gold scoring | triage v1 vs v2 (12 cases) | `docs/day4-run.jsonl`, `docs/day4-scores.jsonl`, `docs/day4-notes.md` |
 
-Shared results across days live in `docs/notes.md`. Assignment instructions for Day 4 live in `docs/w02-04-assignment/`. Day 1 instructions live in `assignments/W02_Day1_Assignment_LOCAL.md`.
+Shared results across days live in `docs/overview/notes.md`. What each prompt asks for and returns is in `docs/overview/prompts.md`. Assignment instructions for Day 4 live in `docs/w02-04-assignment/`. Day 1 instructions live in `assignments/W02_Day1_Assignment_LOCAL.md`.
 
 ---
 
@@ -125,7 +125,8 @@ These are different things. Markdown templates live under `src/prompts/`. Python
 | `docs/day4-run.jsonl` | All Day 4 adapter attempts (primaries and repairs) | Trace tokens/latency back to case, model, and prompt version. |
 | `docs/day4-scores.jsonl` | One `ScoreRecord` per metric per case per prompt version | Trace scores to the same identifiers. |
 | `docs/day4-notes.md` | Counts with denominators, token/latency comparison, conclusion | Answers whether v2's `analysis` field earned its overhead. |
-| `docs/notes.md` | Cross-day summary of runs | Index of `run_id`s and headline metrics. |
+| `docs/overview/notes.md` | Cross-day summary of runs | Index of `run_id`s and headline metrics. |
+| `docs/overview/prompts.md` | Prompt catalog | What baseline, summarize, extract, and triage ask for and return. |
 
 `runs/` holds live append-only files during a local run. Committed evidence is the `docs/*-run.jsonl` copies. Do not commit a populated `.env`.
 

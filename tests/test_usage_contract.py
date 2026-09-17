@@ -9,7 +9,7 @@ import pytest
 
 from promptlab.config import Settings
 from promptlab.errors import UnknownModelError
-from promptlab.usage import CallRecord, append_record, compute_cost
+from promptlab.usage import CallRecord, append_record, compute_cost, round_trip_latencies
 
 EXPECTED_FIELDS = {
     "record_id",
@@ -104,3 +104,11 @@ def test_append_record_appends_jsonl(
     assert len(lines) == 2
     assert json.loads(lines[0])["case_id"] == "E12"
     assert json.loads(lines[1])["case_id"] == "E12"
+
+
+def test_round_trip_latencies_add_repairs_to_the_same_case() -> None:
+    first = make_record().model_copy(update={"case_id": "E03", "latency_ms": 14025})
+    repair = make_record().model_copy(update={"case_id": "E03", "latency_ms": 11883})
+    other = make_record().model_copy(update={"case_id": "E04", "latency_ms": 16000})
+    latencies = round_trip_latencies([first, repair, other])
+    assert latencies == [25908.0, 16000.0]

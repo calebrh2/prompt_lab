@@ -52,15 +52,7 @@ class OllamaAdapter:
             try:
                 response = httpx.post(
                     f"{self._settings.ollama_base_url}/api/generate",
-                    json={
-                        "model": self.model_id,
-                        "prompt": f"{request.system}\n\n{request.user_content}",
-                        "stream": False,
-                        "options": {
-                            "temperature": request.temperature,
-                            "num_predict": request.max_output_tokens,
-                        },
-                    },
+                    json=self._generate_payload(request),
                     timeout=180.0,
                 )
             except (httpx.ConnectError, httpx.TimeoutException):
@@ -163,6 +155,20 @@ class OllamaAdapter:
             )
 
         raise RuntimeError("unreachable")
+
+    def _generate_payload(self, request: CompletionRequest) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "model": self.model_id,
+            "prompt": f"{request.system}\n\n{request.user_content}",
+            "stream": False,
+            "options": {
+                "temperature": request.temperature,
+                "num_predict": request.max_output_tokens,
+            },
+        }
+        if self.model_id == self._settings.models["qwen"].model_id:
+            payload["think"] = False
+        return payload
 
     def _record(
         self,
