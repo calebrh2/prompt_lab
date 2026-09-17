@@ -474,6 +474,109 @@ def _triage_quality(scores: Sequence[ScoreRecord]) -> str:
     )
 
 
+def _failed_parse_count(
+    calls: Sequence[CallRecord], scores: Sequence[ScoreRecord], task: TaskName
+) -> tuple[int, int]:
+    n_cases = _attempt_counts(calls)[2]
+    scored = {row.case_id for row in scores if row.metric == _case_quality_metric(task)}
+    failed = max(n_cases - len(scored), 0)
+    return failed, n_cases
+
+
+def _truncated_root_object(calls: Sequence[CallRecord], failed_case_ids: set[str]) -> bool:
+    for case_id in failed_case_ids:
+        recs = [row for row in calls if row.case_id == case_id]
+        if not recs:
+            continue
+        text = recs[0].response_text or ""
+        if text.count("{") == text.count("}") + 1:
+            return True
+    return False
+
+
+def _extraction_transfer_limit(
+    *,
+    calls: Sequence[CallRecord],
+    scores: Sequence[ScoreRecord],
+    task: TaskName,
+    model_name: str,
+    label: str,
+) -> str | None:
+    if task != "extraction" or not label.endswith(" transfer"):
+        return None
+    failed, n_cases = _failed_parse_count(calls, scores, task)
+    if failed == 0 or n_cases == 0:
+        return None
+    parsed = n_cases - failed
+    scored = {row.case_id for row in scores if row.metric == _case_quality_metric(task)}
+    failed_ids = {row.case_id for row in calls if row.case_id not in scored}
+    truncated = _truncated_root_object(calls, failed_ids)
+    detail = (
+        "the root object was truncated (one closing brace short), and the schema "
+        "repair returned the same truncated text"
+        if truncated
+        else "schema validation failed and the bounded repair did not produce a valid object"
+    )
+    return (
+        f"Extraction quality for {model_name.title()} on `{label}` is counted only "
+        f"over the {parsed} cases that parsed. {failed} of {n_cases} cases never "
+        f"produced valid JSON: {detail}. That is a transfer result, not a "
+        "measurement of Qwen with an adapted extraction prompt."
+    )
+
+
+def _limits_section(
+    transfer_rows: Sequence[str],
+    untested: Sequence[str],
+    extra_notes: Sequence[str] = (),
+) -> list[str]:
+    """Caveats the comparison tables do not support."""
+
+    lines = [
+        "## Limits",
+        "",
+        "There are only 12 cases per task. Results are directional, not "
+        "production-scale estimates. A one-case or two-case difference "
+        "(for example 11/12 versus 10/12) is not a universal model ranking.",
+        "",
+        "No production-volume reliability claim is being made. The set does not "
+        "support claims about behavior at production volume or on document types "
+        "absent from the case files.",
+        "",
+        "Prompt-transfer rows in this run:",
+        "",
+    ]
+    if transfer_rows:
+        lines.extend(f"- {row}" for row in transfer_rows)
+    else:
+        lines.append("- None.")
+    lines.extend(
+        [
+            "",
+            "Those rows are evidence of that transferred prompt, not of the "
+            "model's capability after adaptation.",
+            "",
+            "Untested combinations:",
+            "",
+        ]
+    )
+    if untested:
+        lines.extend(f"- {row}" for row in untested)
+    else:
+        lines.append("- None.")
+    if extra_notes:
+        lines.extend(["", *extra_notes])
+    lines.extend(
+        [
+            "",
+            "Local Ollama latency depends on lab hardware and is not a portable "
+            "production latency figure.",
+            "",
+        ]
+    )
+    return lines
+
+
 def write_comparison(
     *,
     calls: Sequence[CallRecord],
@@ -535,6 +638,10 @@ def write_comparison(
         " ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
     )
 
+    transfer_rows: list[str] = []
+    untested: list[str] = []
+    extra_notes: list[str] = []
+
     for task in _TASK_ORDER:
         model_ids = sorted(
             {model_id for grouped_task, model_id in grouped_calls if grouped_task == task},
@@ -552,6 +659,22 @@ def write_comparison(
             prompt_id = task_calls[0].prompt_id
             prompt_version = task_calls[0].prompt_version
             label = _prompt_label(task, model_name, prompt_id, prompt_version)
+            if label.endswith(" transfer"):
+                transfer_rows.append(
+                    f"{task}: {model_name.title()} ran `{label}`"
+                )
+                untested.append(
+                    f"{task}: {model_name.title()} with an adapted prompt"
+                )
+                note = _extraction_transfer_limit(
+                    calls=task_calls,
+                    scores=task_scores,
+                    task=task,
+                    model_name=model_name,
+                    label=label,
+                )
+                if note is not None:
+                    extra_notes.append(note)
             quality = (
                 _triage_quality(task_scores)
                 if task == "triage"
@@ -562,6 +685,8 @@ def write_comparison(
                 f"| {model_name.title()} | {label} | {quality} | {ops} |"
             )
         lines.append("")
+
+    lines.extend(_limits_section(transfer_rows, untested, extra_notes))
 
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text("\n".join(lines), encoding="utf-8")

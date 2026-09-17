@@ -147,3 +147,40 @@ def test_day5_comparison_tables_use_counts_tokens_and_local_cost(tmp_path: Path)
     assert "mean" not in text.lower()
     assert "16328.5 ms" in text
     assert "28360 ms" in text
+    assert "## Limits" in text
+    assert "12 cases per task" in text
+    assert "directional, not production-scale estimates" in text
+    assert "Prompt-transfer rows in this run:" in text
+    assert "summarization: Qwen ran `summarize.v2 transfer`" in text
+    assert "extraction: Qwen ran `extract.v4 transfer`" in text
+    assert "triage: Qwen ran `triage.v1 transfer`" in text
+    assert "Untested combinations:" in text
+    assert "summarization: Qwen with an adapted prompt" in text
+    assert "extraction: Qwen with an adapted prompt" in text
+    assert "triage: Qwen with an adapted prompt" in text
+    assert "No production-volume reliability claim is being made" in text
+    assert "Local Ollama latency depends on lab hardware" in text
+    assert "not a universal model ranking" in text
+    assert "counted only over the 9 cases that parsed" in text
+    assert "3 of 12 cases never produced valid JSON" in text
+    assert "one closing brace short" in text
+    assert "## Recommendation" not in text
+
+
+def test_committed_comparison_recommendation_names_model_prompt_and_reopen() -> None:
+    text = Path("reports/comparison.md").read_text(encoding="utf-8")
+    assert "## Recommendation" in text
+    assert text.index("## Limits") < text.index("## Recommendation")
+    assert "Summarization on Mistral, running `summarize.v2`" in text
+    assert "Extraction on Mistral, running `extract.v4`" in text
+    assert "Triage on Mistral, running `triage.v1`" in text
+    assert "Reopen if Qwen is measured with an adapted summarization prompt" in text
+    assert "Reopen if Qwen is measured with an adapted extraction prompt" in text
+    assert "Reopen if Qwen is measured with an adapted triage prompt" in text
+    assert "missed escalations on `triage.v1` move above zero" in text
+    assert "summarize.v2 transfer` is not recommended and is also not ruled out" in text
+    assert "extract.v4 transfer` is not recommended and is also not ruled out" in text
+    assert "triage.v1 transfer` is not recommended and is also not ruled out" in text
+    assert "docs/model-decision.md" in text
+    assert "%" not in text
+    assert "mean" not in text.lower()
