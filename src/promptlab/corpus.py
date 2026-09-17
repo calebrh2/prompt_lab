@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-
 
 Task = Literal["triage", "summarization", "extraction"]
 
@@ -63,6 +63,9 @@ class GoldLabel(BaseModel):
     # Extraction
     expected_status: str | None = None
     recoverable_fields: list[str] = Field(default_factory=list)
+    version_group: str | None = None
+    expected_current_case_id: str | None = None
+    as_of: date | None = None
 
     # Triage
     expected_queue: str | None = None

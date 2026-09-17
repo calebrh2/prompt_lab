@@ -138,6 +138,10 @@ def _add_version_scores(
             task=task,
             case_id=f"version:{group_name}",
             model_name=model_name,
+            model_id=Settings.from_env().models[model_name].model_id,
+            prompt_id={"summarization": "summarize", "extraction": "extract", "triage": "triage"}[
+                task
+            ],
             prompt_version=",".join(sorted(prompt_versions)) or prompt_version(task, model_name),
             scorer_version=SCORER_VERSION,
             metric="version_selection_accuracy",
@@ -237,6 +241,12 @@ def main() -> None:
                             task=task,
                             case_id=case.id,
                             model_name=model_name,
+                            model_id=model.model_id,
+                            prompt_id={
+                                "summarization": "summarize",
+                                "extraction": "extract",
+                                "triage": "triage",
+                            }[task],
                             prompt_version=version,
                             output=result.output,
                             gold=gold,
