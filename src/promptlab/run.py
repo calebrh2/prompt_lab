@@ -232,7 +232,6 @@ def main(argv: Sequence[str] | None = None) -> str:
 
 def _copy_evidence(run_id: str) -> None:
     """Persist the unfiltered Day 5 run and scores as the committed evidence files."""
-    from promptlab.report import write_comparison_from_evidence
 
     dest_dir = Path("docs")
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -245,11 +244,6 @@ def _copy_evidence(run_id: str) -> None:
     scores_path.write_text(
         (Path("runs") / f"{run_id}.scores.jsonl").read_text(encoding="utf-8"),
         encoding="utf-8",
-    )
-    write_comparison_from_evidence(
-        run_path=run_path,
-        scores_path=scores_path,
-        report_path=Path("reports") / "comparison.md",
     )
 
 

@@ -27,3 +27,37 @@ Latency is median and maximum over `n` case round-trips.
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | Mistral | triage.v1 | 7/12 | 12/12 | 0/12 | 0/12 | 12/12 | 0/12 | 540.8 | 145.5 | 5493.5 ms | 9580 ms | 12 | 0/12 | 0 | 0/12 | $0.00 |
 | Qwen | triage.v1 transfer | 10/12 | 8/12 | 0/12 | 4/12 | 12/12 | 0/12 | 482.6 | 106.4 | 4652 ms | 8628 ms | 12 | 0/12 | 0 | 0/12 | $0.00 |
+
+## Limits
+
+There are only 12 cases per task. Results are directional, not production-scale estimates. A one-case or two-case difference (for example 11/12 versus 10/12) is not a universal model ranking.
+
+No production-volume reliability claim is being made. The set does not support claims about behavior at production volume or on document types absent from the case files.
+
+Prompt-transfer rows in this run:
+
+- summarization: Qwen ran `summarize.v2 transfer`
+- extraction: Qwen ran `extract.v4 transfer`
+- triage: Qwen ran `triage.v1 transfer`
+
+Those rows are evidence of that transferred prompt, not of the model's capability after adaptation.
+
+Untested combinations:
+
+- summarization: Qwen with an adapted prompt
+- extraction: Qwen with an adapted prompt
+- triage: Qwen with an adapted prompt
+
+Extraction quality for Qwen on `extract.v4 transfer` is counted only over the 9 cases that parsed. 3 of 12 cases never produced valid JSON: the root object was truncated (one closing brace short), and the schema repair returned the same truncated text. That is a transfer result, not a measurement of Qwen with an adapted extraction prompt.
+
+Local Ollama latency depends on lab hardware and is not a portable production latency figure.
+
+## Recommendation
+
+Summarization on Mistral, running `summarize.v2`. Required evidence is 59/60 with 1/12 repairs on the adapted prompt. Qwen running `summarize.v2 transfer` is not recommended and is also not ruled out, because it has not been measured with an adapted prompt. Reopen if Qwen is measured with an adapted summarization prompt, or if invented/unsupported evidence on `summarize.v2` increases.
+
+Extraction on Mistral, running `extract.v4`. Required evidence is 71/72 with 0/12 parse failures on the adapted prompt. Qwen running `extract.v4 transfer` is not recommended and is also not ruled out, because it has not been measured with an adapted prompt. Reopen if Qwen is measured with an adapted extraction prompt that produces valid JSON on all 12 cases.
+
+Triage on Mistral, running `triage.v1`. Human-boundary is 12/12 and missed escalations are 0/12 on the adapted prompt; routing accuracy is 7/12. Qwen running `triage.v1 transfer` is not recommended and is also not ruled out, because it has not been measured with an adapted prompt. Reopen if Qwen is measured with an adapted triage prompt, or if missed escalations on `triage.v1` move above zero.
+
+Constraints, rejected alternatives, and review triggers are in docs/model-decision.md.
