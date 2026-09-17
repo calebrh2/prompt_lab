@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+from datetime import date
+
+import pytest
+
 from promptlab.corpus import GoldLabel
 from promptlab.records import ScoreRecord
+from promptlab.rules import VersionCandidate, select_current_version
 from promptlab.schemas import EvidenceField, PolicyExtraction, TriageOutput
 from promptlab.scoring import (
     SCORER_VERSION,
     human_boundary_pass,
     score_output,
     score_triage,
+    score_version_selection,
     source_sections,
 )
 
@@ -45,6 +51,8 @@ def test_queue_accuracy_uses_expected_queue() -> None:
         task="triage",
         case_id="T01",
         model_name="mistral",
+        model_id="fixture-model",
+        prompt_id="triage",
         prompt_version="v1",
         gold=_gold(queue="card_dispute", escalation=False),
         output=_output(queue="fraud_report", escalation=False),
@@ -64,6 +72,8 @@ def test_escalation_uses_escalation_required_not_human_review() -> None:
         task="triage",
         case_id="T06",
         model_name="mistral",
+        model_id="fixture-model",
+        prompt_id="triage",
         prompt_version="v1",
         gold=gold,
         output=output,
@@ -83,6 +93,8 @@ def test_unnecessary_escalation_is_separate_from_missed() -> None:
         task="triage",
         case_id="T01",
         model_name="mistral",
+        model_id="fixture-model",
+        prompt_id="triage",
         prompt_version="v1",
         gold=_gold(queue="card_dispute", escalation=False),
         output=_output(queue="card_dispute", escalation=True),
@@ -106,6 +118,8 @@ def test_human_boundary_is_deterministic_and_uses_existing_score_record() -> Non
         task="triage",
         case_id="T01",
         model_name="mistral",
+        model_id="fixture-model",
+        prompt_id="triage",
         prompt_version="v1",
         gold=_gold(queue="card_dispute", escalation=False),
         output=crossing,
@@ -132,6 +146,8 @@ def test_scoring_module_does_not_define_a_second_score_record() -> None:
         task="triage",
         case_id="T01",
         model_name="mistral",
+        model_id="fixture-model",
+        prompt_id="triage",
         prompt_version="v1",
         gold=_gold(queue="card_dispute", escalation=False),
         output=_output(queue="card_dispute", escalation=False),
@@ -170,6 +186,8 @@ def test_evidence_recall_citations_and_unsupported_avoidance() -> None:
         task="extraction",
         case_id="E00",
         model_name="test",
+        model_id="fixture-model",
+        prompt_id="extract",
         prompt_version="v1",
         output=output,
         gold=gold,
@@ -211,6 +229,8 @@ def test_citation_correctness_requires_heading_in_source() -> None:
         task="extraction",
         case_id="E00",
         model_name="test",
+        model_id="fixture-model",
+        prompt_id="extract",
         prompt_version="v1",
         output=output,
         gold=gold,
@@ -242,6 +262,8 @@ def test_triage_detects_pii_leakage_and_boundary_violation() -> None:
         task="triage",
         case_id="T00",
         model_name="test",
+        model_id="fixture-model",
+        prompt_id="triage",
         prompt_version="v1",
         output=output,
         gold=gold,
@@ -252,3 +274,123 @@ def test_triage_detects_pii_leakage_and_boundary_violation() -> None:
     assert by_metric["pii_leakage"].lower_is_better
     assert by_metric["human_boundary"].numerator == 0
     assert SCORER_VERSION != "day4.v1"
+
+
+def _absent() -> EvidenceField:
+    return EvidenceField(value=None, status="absent")
+
+
+def _present(value: str, citation: str = "1. Document Control") -> EvidenceField:
+    return EvidenceField(value=value, status="present", citation=citation)
+
+
+def _extraction(
+    *, version: str | None, effective: str | None, status: str = "valid"
+) -> PolicyExtraction:
+    version_field = _present(version) if version is not None else _absent()
+    effective_field = _present(effective) if effective is not None else _absent()
+    return PolicyExtraction(
+        document_status=status,  # type: ignore[arg-type]
+        policy_name=_present("Small Business Periodic KYC Review Policy"),
+        version=version_field,
+        effective_date=effective_field,
+        jurisdictions=_absent(),
+        beneficial_ownership_threshold=_absent(),
+        review_frequency=_absent(),
+        required_documents=_absent(),
+    )
+
+
+def _version_gold(case_id: str, *, status: str) -> GoldLabel:
+    return GoldLabel(
+        id=case_id,
+        task="extraction",
+        expected_status=status,
+        recoverable_fields=["policy_name", "version", "effective_date"],
+        version_group="small-business-periodic-kyc",
+        expected_current_case_id="E02",
+        as_of=date(2025, 6, 1),
+    )
+
+
+def test_version_selection_uses_select_current_version_not_document_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[list[VersionCandidate], date]] = []
+    from promptlab import scoring as scoring_mod
+
+    def wrapped(
+        extractions: list[VersionCandidate], as_of: date
+    ) -> VersionCandidate | None:
+        calls.append((extractions, as_of))
+        return select_current_version(extractions, as_of)
+
+    monkeypatch.setattr(scoring_mod, "select_current_version", wrapped)
+    scores = score_version_selection(
+        run_id="test",
+        task="extraction",
+        model_name="test",
+        model_id="fixture-model",
+        prompt_id="extract",
+        prompt_version="extract.v2",
+        labels=[_version_gold("E01", status="superseded"), _version_gold("E02", status="valid")],
+        outputs={
+            "E01": _extraction(version="1.0", effective="2024-01-01", status="valid"),
+            "E02": _extraction(version="2.0", effective="2025-01-01", status="superseded"),
+        },
+    )
+    assert calls
+    candidates, as_of = calls[0]
+    assert as_of == date(2025, 6, 1)
+    assert {item.case_id for item in candidates} == {"E01", "E02"}
+    record = scores[0]
+    assert record.metric == "version_selection_accuracy"
+    assert record.case_id == "E02"
+    assert record.model_id == "fixture-model"
+    assert record.prompt_id == "extract"
+    assert record.numerator == 1
+    assert record.denominator == 1
+    assert "cause=rule" in (record.detail or "")
+    assert "expected=E02" in (record.detail or "")
+    assert "selected=E02" in (record.detail or "")
+    assert "%" not in (record.detail or "")
+
+
+def test_version_selection_missing_evidence_is_extraction_failure() -> None:
+    scores = score_version_selection(
+        run_id="test",
+        task="extraction",
+        model_name="test",
+        model_id="fixture-model",
+        prompt_id="extract",
+        prompt_version="extract.v2",
+        labels=[_version_gold("E01", status="superseded"), _version_gold("E02", status="valid")],
+        outputs={
+            "E01": _extraction(version=None, effective=None),
+            "E02": _extraction(version="2.0", effective="2025-01-01"),
+        },
+    )
+    record = scores[0]
+    assert record.numerator == 1
+    assert "cause=extraction" in (record.detail or "")
+    assert "missing=E01" in (record.detail or "")
+
+
+def test_version_selection_ambiguous_dates_are_rule_failures() -> None:
+    scores = score_version_selection(
+        run_id="test",
+        task="extraction",
+        model_name="test",
+        model_id="fixture-model",
+        prompt_id="extract",
+        prompt_version="extract.v2",
+        labels=[_version_gold("E01", status="superseded"), _version_gold("E02", status="valid")],
+        outputs={
+            "E01": _extraction(version="1.0", effective="2025-01-01"),
+            "E02": _extraction(version="2.0", effective="2025-01-01"),
+        },
+    )
+    record = scores[0]
+    assert record.numerator == 0
+    assert "cause=rule" in (record.detail or "")
+    assert "selected=none" in (record.detail or "")
